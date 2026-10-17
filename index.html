@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Satr · سطر — Arabic subtitle fixer</title>
+<link rel="stylesheet" href="src/styles.css">
+</head>
+<body>
+<header>
+  <div class="brand"><span class="logo">سطر</span><div><h1>Satr</h1><p>Arabic subtitles that land on the right side. <span dir="rtl">ترجمة عربية في مكانها الصحيح.</span></p></div></div>
+  <div class="privacy">Runs 100% in your browser · nothing is uploaded</div>
+</header>
+<main>
+  <section id="drop" class="drop">
+    <p class="big">Drop an <b>.srt</b> or <b>.vtt</b> file here</p>
+    <p dir="rtl">اسحب ملف الترجمة هنا</p>
+    <div class="actions"><label class="btn">Choose file<input id="file" type="file" accept=".srt,.vtt,text/plain" hidden></label>
+    <button id="sample" class="btn ghost">Try a sample</button></div>
+  </section>
+  <section id="results" hidden>
+    <div class="summary">
+      <div class="stat"><span id="s-fixes">0</span><small>fixes</small></div>
+      <div class="stat"><span id="s-cues">0</span><small>cues</small></div>
+      <div class="stat warn"><span id="s-warn">0</span><small>warnings</small></div>
+      <div class="rules" id="rules"></div>
+      <button id="download" class="btn">Download fixed file</button>
+      <button id="reset" class="btn ghost">New file</button>
+    </div>
+    <p class="hint">Previews below render in a <b>left-to-right player</b> — the way most video editors and burn-in tools show subtitles. Watch where the punctuation lands.</p>
+    <div class="cols"><h3>Before · قبل</h3><h3>After · بعد</h3></div>
+    <div id="cues"></div>
+  </section>
+</main>
+<footer>Satr · MIT licensed · built for Arabic creators, translators and subtitlers</footer>
+<script src="src/satr.js"></script>
+<script src="src/app.js"></script>
+</body>
+</html>

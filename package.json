@@ -1,0 +1,2 @@
+{ "name": "satr", "version": "0.1.0", "description": "Fix Arabic RTL problems in SRT/VTT subtitles, in the browser", "license": "MIT",
+  "scripts": { "start": "npx --yes http-server -p 8080 -c-1 .", "test": "node test/satr.test.js" } }

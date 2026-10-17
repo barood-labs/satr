@@ -1,0 +1,11 @@
+s1_title|This is Satr. Satr means "line" in Arabic, and it fixes Arabic subtitles in seconds.
+s1b_bug|If you've ever made Arabic subtitles for a video, you've seen this bug. You export your file, and the question mark, the exclamation point, even the English brand names, jump to the wrong side of the line.
+s2_problem|That happens because most video editors and burn-in tools render subtitles left to right. Arabic is right to left. So every punctuation mark at the edge of a line lands on the wrong end, and the creator has to fix each line by hand.
+s3_landing|Satr runs completely in your browser. Nothing is uploaded, and there's no account and no API key.
+s3b_drag|Drop in an S R T or Web V T T file, or try the sample.
+s4_results|Satr scans every cue in one pass. Here it found ten fixes across six cues, and flagged two warnings.
+s5_cues|On the left is how a left-to-right player shows the original file. On the right is the fixed version. The exclamation mark and the question mark are back where Arabic readers expect them. Latin commas and question marks become Arabic ones, and stray spaces are removed.
+s5b_cues|It also swaps Persian look-alike letters for the Arabic ones, strips decorative stretching, and warns when a line is too long or too fast to read.
+s6_toggle|Every rule can be switched on or off, and the counts update live. When you're happy, download the fixed file and drop it straight back into Premiere, CapCut, or YouTube.
+s7_test|Fixes are safe to run twice, English lines are left alone, and an automated test suite checks every rule.
+s8_outro|Satr is for the Arabic creators, translators, and subtitlers who fix these lines by hand today. Free, open source, and offline. Satr. Every line in its place.
