@@ -1,6 +1,6 @@
 ---
 doc: spec
-status: draft
+status: approved
 ---
 # Satr — Technical Spec
 

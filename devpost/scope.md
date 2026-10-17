@@ -1,8 +1,7 @@
 ---
 doc: scope
-status: draft
+status: approved
 ---
-<!-- Draft prepared with the agent. Review and change anything that isn't what you want, then set status: approved. -->
 # Satr · سطر
 
 A browser tool that fixes the right-to-left problems in Arabic subtitle files before they reach a video editor.

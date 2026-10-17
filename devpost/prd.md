@@ -1,6 +1,6 @@
 ---
 doc: prd
-status: draft
+status: approved
 ---
 # Satr — Product Requirements
 A browser tool for Arabic creators and subtitlers to repair RTL display problems in subtitle files. Source: `scope.md > The Unique Kernel`, `scope.md > Who It's For`.
