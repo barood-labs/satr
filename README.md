@@ -6,8 +6,8 @@ Arabic subtitles break *silently*: the `؟` jumps to the wrong end of the line, 
 
 | | |
 |---|---|
-| **GitLab project** | https://gitlab.com/satrtools/satr |
-| **Live app** | https://satrtools.gitlab.io/satr/ (GitLab Pages, published by the `pages` job, proven by `verify-live`) |
+| **GitLab project** | https://gitlab.com/gitlab-ai-hackathon/transcend-october-2026/43481824/showcase (hackathon-provisioned Showcase project) |
+| **Live app** | the GitLab Pages URL in **Deploy → Pages** of the project (GitLab Pages, published by the `pages` job, proven by `verify-live`) |
 | **Original MIT project** | https://github.com/baroodstore1-ai/satr |
 | **Who it's for** | Arabic video editors, translators and creators (400M+ Arabic readers) whose subtitles come out of English-first tools |
 
@@ -101,7 +101,7 @@ Agents call the deterministic Satr CLI (`cli/satr-cli.js`) instead of guessing a
 
 ## Try it as a judge
 
-1. Open the [live app](https://satrtools.gitlab.io/satr/) → **Try a sample**. Everything runs in your browser.
+1. Open the live app (Deploy → Pages URL) → **Try a sample**. Everything runs in your browser.
 2. Open the project's **CI/CD → Pipelines** for the history, and any pipeline's artifacts for the Arabic RTL report, compliance evidence, lifecycle coverage and carbon report.
 3. Locally: `npm test && node scripts/arabic-qa.js && node scripts/governance.js && node scripts/lifecycle-map.js && python3 scripts/validate-flows.py`
 4. Set the flows up in your own project: [`docs/SETUP-GITLAB.md`](docs/SETUP-GITLAB.md).
