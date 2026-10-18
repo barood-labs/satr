@@ -21,6 +21,8 @@ Requires any static server (or Node ≥ 18).
 npm start          # serves on http://localhost:8080
 # or: python3 -m http.server 8080
 npm test           # runs the rule tests
+npm run qa         # Arabic golden-corpus regression
+node cli/satr-cli.js check subs/*.srt   # CLI gate
 ```
 Open http://localhost:8080 and click **Try a sample**. No API keys, no accounts, no network calls.
 
@@ -38,6 +40,28 @@ demo/               demo video + frames + narration script
 
 ## How it was built
 Planned and built with the [Devpost Learn skill pack](https://github.com/challengepost/learn-ai-basics) (`scope → prd → spec → build`) and an AI coding agent. Planning docs are in `devpost/`. No pre-existing code was used; no third-party runtime libraries.
+
+## Life after code: Satr on GitLab (agentic DevSecOps)
+Satr now ships through a GitLab pipeline run by **GitLab Duo Agent Platform** flows:
+
+```
+issue ─▶ Bug-to-Regression flow ─▶ MR ─▶ MR Guardian flow (RTL linguist · security · auto-fix · bilingual verdict)
+        pipeline: lint · Duo-config · unit · Arabic golden regression · subtitle gate · SAST · secrets · build · SCI
+        failed pipeline ─▶ Pipeline Medic flow ─▶ fix MR
+merge ─▶ [human approves] ─▶ Pages deploy ─▶ verify-live smoke test ─▶ Release Scribe flow (EN/AR notes, human gate) ─▶ tag ─▶ GitLab release
+```
+
+| Before (GitHub, manual) | After (GitLab, agentic) |
+|---|---|
+| Run `npm test` by hand, eyeball Arabic output | Golden-corpus Arabic regression + JUnit report on every MR |
+| No security checks | SAST + secret detection + Duo security reviewer |
+| Copy files to a host by hand | Pages deploy + live smoke test proving the commit is live |
+| Bug reports sit in issues | Mention a flow → regression test + fix MR |
+| English-only changelog, if any | Bilingual EN/AR release notes, human-approved |
+| No idea what CI costs the planet | SCI carbon report per pipeline; docs-only pushes skip all checks |
+
+Files: `.gitlab-ci.yml`, `.gitlab/duo/flows/*.yaml`, `.gitlab/duo/agents/`, `.gitlab/duo/mr-review-instructions.yaml`,
+`templates/subtitle-check/` (reusable CI/CD component), `cli/satr-cli.js`, `scripts/`, `qa/`. Setup: `docs/SETUP-GITLAB.md`.
 
 ## License
 MIT

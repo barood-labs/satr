@@ -5,3 +5,10 @@
 node_modules/
 demo/frames/
 demo/*.wav
+public/
+qa-junit.xml
+qa-report.md
+qa-stats.json
+sci.json
+sci-report.md
+subtitle-report.md

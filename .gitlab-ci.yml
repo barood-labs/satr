@@ -1,0 +1,193 @@
+# Satr · سطر — post-code lifecycle on GitLab
+# lint → test → Arabic RTL regression → security → build → deploy (Pages) → verify live → sustainability → release
+# Duo Agent Platform flows (.gitlab/duo/flows/) review MRs, heal failed pipelines, turn bug reports into
+# regression tests, and write bilingual release notes. The one human gate is the production deploy.
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS
+      when: never                       # no duplicate branch + MR pipelines
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+stages: [lint, test, qa, security, build, deploy, verify, sustainability, release]
+
+default:
+  image: node:20-alpine
+  interruptible: true
+
+variables:
+  AUTO_DEPLOY: "false"                  # "true" = Hands-off mode (skip the production approval click)
+
+# Green CI: check jobs only run when code / fixtures / pipeline change. Docs-only pushes skip them.
+.code-changes: &code-changes
+  - src/**/*
+  - cli/**/*
+  - scripts/**/*
+  - test/**/*
+  - qa/**/*
+  - samples/**/*
+  - templates/**/*
+  - index.html
+  - package.json
+  - .gitlab-ci.yml
+  - .gitlab/duo/**/*
+
+.on-code:
+  rules:
+    - if: $CI_COMMIT_TAG
+    - changes: *code-changes
+
+include:
+  - template: Jobs/SAST.gitlab-ci.yml
+  - template: Jobs/Secret-Detection.gitlab-ci.yml
+  - local: templates/subtitle-check/template.yml
+    inputs:
+      stage: qa
+
+lint:
+  stage: lint
+  extends: .on-code
+  script:
+    - for f in src/*.js cli/*.js scripts/*.js test/*.js; do node --check "$f" || exit 1; done
+    - |
+      # every text file must be valid UTF-8 (Arabic text corrupts silently otherwise)
+      bad=0
+      for f in $(find src cli scripts test qa samples templates -type f) index.html README.md; do
+        node -e 'const b=require("fs").readFileSync(process.argv[1]);if(new TextDecoder("utf-8",{fatal:true}).decode(b)===null)process.exit(1)' "$f" 2>/dev/null || { echo "not UTF-8: $f"; bad=1; }
+      done
+      exit $bad
+
+duo-config:
+  stage: lint
+  image: python:3.12-alpine
+  extends: .on-code
+  script:
+    - pip install --quiet pyyaml
+    - python3 scripts/validate-flows.py   # Duo flow YAML: schema, restricted fields, refs, tool names
+
+unit-tests:
+  stage: test
+  extends: .on-code
+  needs: [lint]
+  script:
+    - npm test
+
+arabic-regression:
+  stage: qa
+  extends: .on-code
+  needs: [lint]
+  script:
+    - node scripts/arabic-qa.js
+  artifacts:
+    when: always
+    reports:
+      junit: qa-junit.xml
+    paths: [qa-report.md, qa-stats.json]
+    expose_as: "Arabic RTL report"
+
+subtitle-gate:
+  extends: .on-code
+  needs: [lint]
+
+sast:
+  stage: security
+
+secret_detection:
+  stage: security
+
+build-site:
+  stage: build
+  extends: .on-code
+  needs:
+    - job: unit-tests
+    - job: arabic-regression
+      artifacts: true
+  script:
+    - apk add --no-cache git >/dev/null
+    - sh scripts/build-pages.sh
+  artifacts:
+    paths: [public]
+    expose_as: "Site preview"           # reviewers open the built site straight from the MR
+    expire_in: 1 week
+
+pages:
+  stage: deploy
+  needs: [build-site]
+  script:
+    - echo "Publishing $CI_COMMIT_SHORT_SHA to $CI_PAGES_URL"
+  artifacts:
+    paths: [public]
+  environment:
+    name: production
+    url: $CI_PAGES_URL
+  rules:
+    - if: $CI_COMMIT_BRANCH != $CI_DEFAULT_BRANCH
+      when: never
+    - if: $AUTO_DEPLOY == "true"
+      changes: *code-changes
+    - changes: *code-changes
+      when: manual                      # Supervised: agents did the rest, a human approves production
+      allow_failure: false
+
+verify-live:
+  stage: verify
+  needs: [pages]
+  script:
+    - node scripts/smoke.js "$CI_PAGES_URL" "$CI_COMMIT_SHORT_SHA"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *code-changes
+
+sustainability:
+  stage: sustainability
+  extends: .on-code
+  needs: [lint]
+  interruptible: true
+  script:
+    - node scripts/sci.js
+  artifacts:
+    paths: [sci-report.md, sci.json]
+    expose_as: "Carbon report"
+
+# Optional Google Cloud deploy (only runs when GCP_PROJECT_ID + GCP_SA_KEY CI/CD variables are set).
+deploy-cloud-run:
+  stage: deploy
+  image: google/cloud-sdk:alpine
+  needs: [build-site]
+  rules:
+    - if: $GCP_PROJECT_ID && $GCP_SA_KEY && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
+  environment:
+    name: production-gcp
+  script:
+    - echo "$GCP_SA_KEY" > /tmp/key.json
+    - gcloud auth activate-service-account --key-file=/tmp/key.json && rm -f /tmp/key.json
+    - gcloud run deploy satr --source . --project "$GCP_PROJECT_ID" --region "${GCP_REGION:-us-central1}" --allow-unauthenticated --min-instances 0 --max-instances 1 --memory 128Mi --quiet
+
+release-notes:
+  stage: release
+  needs: []
+  rules:
+    - if: $CI_COMMIT_TAG
+  script:
+    - apk add --no-cache git >/dev/null
+    - git fetch --tags --quiet || true
+    - node scripts/release-notes.js
+  artifacts:
+    paths: [RELEASE_NOTES.md]
+
+release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs: [release-notes]
+  rules:
+    - if: $CI_COMMIT_TAG
+  script:
+    - echo "Releasing $CI_COMMIT_TAG"
+  release:
+    tag_name: $CI_COMMIT_TAG
+    name: "Satr $CI_COMMIT_TAG"
+    description: RELEASE_NOTES.md

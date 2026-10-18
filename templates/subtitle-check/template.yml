@@ -1,0 +1,42 @@
+# Satr subtitle gate — reusable GitLab CI/CD component.
+# Any project that ships Arabic subtitles can add:
+#   include:
+#     - component: $CI_SERVER_FQDN/<group>/satr/subtitle-check@~latest
+#       inputs: { paths: "subs/**/*.srt subs/**/*.vtt" }
+spec:
+  inputs:
+    stage:
+      default: qa
+    paths:
+      default: "*.srt *.vtt"
+      description: Space-separated globs of subtitle files to gate
+    exclude:
+      default: "samples/ qa/corpus/ qa/expected/ public/"
+      description: Space-separated path prefixes to skip (intentionally broken fixtures, build output)
+    mode:
+      default: check
+      options: [check, report]
+      description: "check = fail the job when a subtitle needs fixes; report = warn only"
+---
+subtitle-gate:
+  stage: $[[ inputs.stage ]]
+  image: node:20-alpine
+  variables:
+    SATR_PATHS: "$[[ inputs.paths ]]"
+    SATR_EXCLUDE: "$[[ inputs.exclude ]]"
+  script:
+    - apk add --no-cache git >/dev/null
+    - |
+      set -f; files=""
+      for f in $(git ls-files $SATR_PATHS); do
+        skip=0; for p in $SATR_EXCLUDE; do case "$f" in "$p"*) skip=1;; esac; done
+        [ $skip -eq 0 ] && files="$files $f"
+      done
+      set +f
+      if [ -z "$files" ]; then echo "No subtitle files to gate."; echo "No subtitle files changed." > subtitle-report.md; exit 0; fi
+      node cli/satr-cli.js report $files | tee subtitle-report.md
+      [ "$[[ inputs.mode ]]" = "report" ] || node cli/satr-cli.js check $files
+  artifacts:
+    when: always
+    paths: [subtitle-report.md]
+    expose_as: "Subtitle report"

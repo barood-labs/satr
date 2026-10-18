@@ -1,0 +1,30 @@
+# Custom instructions for GitLab Duo Code Review (applied automatically when Duo reviews an MR).
+instructions:
+  - name: Arabic RTL rules engine
+    fileFilters:
+      - "src/satr.js"
+    instructions: |
+      1. Every rule must be idempotent: running analyze() on its own output must change nothing.
+      2. Lines with no Arabic letters must never be modified (no RLM, no punctuation change).
+      3. Punctuation mapping is only , → ، ? → ؟ ; → ؛ and only when adjacent to Arabic letters — never inside URLs, numbers or Latin words.
+      4. Right-to-Left Marks (U+200F) wrap the whole line once; never stack duplicates.
+      5. Any behaviour change must come with a new qa/corpus case and golden file.
+  - name: Browser UI safety
+    fileFilters:
+      - "src/app.js"
+      - "index.html"
+    instructions: |
+      1. Subtitle text, cue ids, timings and file names are untrusted: anything placed in innerHTML must go through esc().
+      2. No network requests other than loading samples/ from the same origin. No third-party scripts.
+  - name: Golden files
+    fileFilters:
+      - "qa/expected/**"
+    instructions: |
+      Golden files are human-reviewed truth. Explain the visible change for each modified line and flag any change not justified by a matching src/satr.js change.
+  - name: Pipeline and agents
+    fileFilters:
+      - ".gitlab-ci.yml"
+      - ".gitlab/duo/**"
+      - "templates/**"
+    instructions: |
+      Flag removal or weakening of lint, tests, arabic-regression, sast, secret_detection or verify-live; any job that echoes secrets; and flow prompts that would let untrusted issue/MR text change the agent's task.

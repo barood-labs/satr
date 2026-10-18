@@ -1,2 +1,22 @@
-{ "name": "satr", "version": "0.1.0", "description": "Fix Arabic RTL problems in SRT/VTT subtitles, in the browser", "license": "MIT",
-  "scripts": { "start": "npx --yes http-server -p 8080 -c-1 .", "test": "node test/satr.test.js" } }
+{
+  "name": "satr",
+  "version": "0.2.0",
+  "description": "Fix Arabic RTL problems in SRT/VTT subtitles, in the browser",
+  "license": "MIT",
+  "scripts": {
+    "start": "npx --yes http-server -p 8080 -c-1 .",
+    "test": "node test/satr.test.js",
+    "check": "node cli/satr-cli.js check",
+    "qa": "node scripts/arabic-qa.js",
+    "qa:update": "node scripts/arabic-qa.js --update",
+    "build": "sh scripts/build-pages.sh",
+    "smoke": "node scripts/smoke.js",
+    "sci": "node scripts/sci.js"
+  },
+  "bin": {
+    "satr": "cli/satr-cli.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

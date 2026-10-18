@@ -1,0 +1,109 @@
+# Satr Pipeline Medic — trigger: pipeline event (failed pipelines). Goal = pipeline webhook payload.
+# Level: Supervised — diagnoses the failure, opens a fix MR with passing local checks, and reports.
+# A maintainer approves the fix MR (which is itself reviewed by mr-rtl-review).
+version: "v1"
+environment: ambient
+components:
+  - name: "triage"
+    type: AgentComponent
+    prompt_id: "triage_prompt"
+    model_size_preference: "small"
+    inputs:
+      - from: "context:project_id"
+        as: "project_id"
+      - from: "context:goal"
+        as: "pipeline_event"
+    toolset: ["get_pipeline_failing_jobs", "get_job_logs", "get_commit", "get_commit_diff"]
+    ui_log_events: ["on_agent_final_answer", "on_tool_execution_failed"]
+
+  - name: "medic"
+    type: AgentComponent
+    prompt_id: "medic_prompt"
+    inputs:
+      - from: "context:project_id"
+        as: "project_id"
+      - from: "context:goal"
+        as: "pipeline_event"
+      - from: "context:triage.final_answer"
+        as: "diagnosis"
+      - from: "context:inputs.agent_platform_standard_context.primary_branch"
+        as: "primary_branch"
+    toolset: ["read_file", "edit_file", "find_files", "grep", "run_command", "run_git_command",
+              "create_merge_request", "create_merge_request_note", "ci_linter", "gitlab_merge_request_search"]
+    ui_log_events: ["on_agent_final_answer", "on_tool_execution_success", "on_tool_execution_failed"]
+
+routers:
+  - from: "triage"
+    to: "medic"
+  - from: "medic"
+    to: "end"
+
+flow:
+  entry_point: "triage"
+  inputs:
+    - category: agent_platform_standard_context
+      input_schema:
+        primary_branch:
+          type: string
+          description: The default/primary branch of the repository
+        workload_branch:
+          type: string
+          description: git ref to workload branch
+        session_owner_id:
+          type: string
+          description: Human user's ID that initiated the flow
+
+prompts:
+  - prompt_id: "triage_prompt"
+    name: "Pipeline triage"
+    unit_primitives: []
+    prompt_template:
+      system: |
+        You triage a GitLab CI pipeline for Satr. The goal is the pipeline webhook payload (JSON).
+        If the pipeline status is not "failed", or it was triggered by a branch whose name starts with
+        "duo-medic/", answer exactly "SKIP: <reason>" and stop (this prevents fix loops).
+        Otherwise list the failing jobs, read each failing job's log (only the last part matters), and read the
+        commit diff. Classify each failure as one of:
+        CODE (a bug in src/ or cli/), GOLDEN (Arabic regression output differs from qa/expected/),
+        TEST (test is wrong), CONFIG (.gitlab-ci.yml or template error), SECURITY (sast/secret finding),
+        INFRA (runner, network, registry, timeout — not fixable by a code change).
+        When done, your final answer is: pipeline id and ref, MR IID if the payload has one, and per failing job:
+        class, the exact error lines, the suspected file and line. No further steps are needed after that.
+      user: |
+        Project ID: {{ project_id }}
+        Pipeline event: {{ pipeline_event }}
+      placeholder: history
+    params:
+      timeout: 240
+
+  - prompt_id: "medic_prompt"
+    name: "Pipeline medic"
+    unit_primitives: []
+    prompt_template:
+      system: |
+        You repair failed Satr pipelines. The repository is checked out. Follow the diagnosis.
+        - If the diagnosis starts with "SKIP", do nothing and answer "Skipped."
+        - INFRA: do not change code. Post a note (on the MR if there is one) explaining it is an
+          infrastructure failure and that a retry is recommended.
+        - SECRET found by secret detection: never print the secret. Post a note telling the maintainer to
+          revoke and rotate it; do not attempt a fix.
+        - CODE, TEST, CONFIG, SAST: make the smallest change that fixes the root cause.
+        - GOLDEN: decide whether the new output is a regression or an intended improvement. Fix the code if it
+          is a regression. Only if it is clearly intended may you run "node scripts/arabic-qa.js --update", and
+          then the MR description must show every changed golden line before/after and say
+          "Golden files changed — needs human review / تغيّرت الملفات المرجعية — تحتاج مراجعة بشرية".
+        Before opening an MR, run locally and make sure all pass: npm test ; node scripts/arabic-qa.js ;
+        for CONFIG changes also validate .gitlab-ci.yml with the CI linter.
+        Work on a new branch named duo-medic/pipeline-<pipeline id>, commit with a message starting with
+        "fix(ci):" or "fix:", push, and open a merge request into the branch that failed (or the primary branch)
+        whose description has: root cause, the fix, the local check results, in English then Arabic.
+        Never push to the primary branch directly and never disable, skip, or weaken a job or test to make it pass.
+        When finished, your final answer is the MR link or the note you posted. No further steps are needed after that.
+      user: |
+        Project ID: {{ project_id }}
+        Primary branch: {{ primary_branch }}
+        Diagnosis: {{ diagnosis }}
+        Pipeline event: {{ pipeline_event }}
+      placeholder: history
+    params:
+      timeout: 600

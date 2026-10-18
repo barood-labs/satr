@@ -1,0 +1,214 @@
+# Satr MR Guardian — trigger: assign the flow's service account as REVIEWER on a merge request.
+# Goal = MR IID. Level: Supervised — agents review, auto-fix subtitle files, and post one bilingual
+# verdict; the human approves the outcome (merge).
+version: "v1"
+environment: ambient
+components:
+  - name: "context_gatherer"
+    type: AgentComponent
+    prompt_id: "gather_prompt"
+    model_size_preference: "small"
+    inputs:
+      - from: "context:project_id"
+        as: "project_id"
+      - from: "context:goal"
+        as: "mr_iid"
+    toolset: ["get_merge_request", "list_merge_request_diffs"]
+    ui_log_events: ["on_agent_final_answer", "on_tool_execution_failed"]
+
+  - name: "rtl_linguist"
+    type: AgentComponent
+    prompt_id: "linguist_prompt"
+    inputs:
+      - from: "context:project_id"
+        as: "project_id"
+      - from: "context:goal"
+        as: "mr_iid"
+      - from: "context:context_gatherer.final_answer"
+        as: "mr_context"
+    toolset: ["read_file", "find_files", "grep", "run_command", "list_merge_request_diffs", "create_merge_request_diff_note"]
+    ui_log_events: ["on_agent_final_answer", "on_tool_execution_success", "on_tool_execution_failed"]
+
+  - name: "security_reviewer"
+    type: AgentComponent
+    prompt_id: "security_prompt"
+    inputs:
+      - from: "context:project_id"
+        as: "project_id"
+      - from: "context:goal"
+        as: "mr_iid"
+      - from: "context:context_gatherer.final_answer"
+        as: "mr_context"
+    toolset: ["read_file", "grep", "list_merge_request_diffs", "get_pipeline_failing_jobs", "create_merge_request_diff_note"]
+    ui_log_events: ["on_agent_final_answer", "on_tool_execution_success", "on_tool_execution_failed"]
+
+  - name: "subtitle_fixer"
+    type: AgentComponent
+    prompt_id: "fixer_prompt"
+    inputs:
+      - from: "context:project_id"
+        as: "project_id"
+      - from: "context:goal"
+        as: "mr_iid"
+      - from: "context:context_gatherer.final_answer"
+        as: "mr_context"
+      - from: "context:rtl_linguist.final_answer"
+        as: "linguist_findings"
+    toolset: ["read_file", "run_command", "run_git_command"]
+    ui_log_events: ["on_agent_final_answer", "on_tool_execution_success", "on_tool_execution_failed"]
+
+  - name: "verdict_writer"
+    type: AgentComponent
+    prompt_id: "verdict_prompt"
+    inputs:
+      - from: "context:project_id"
+        as: "project_id"
+      - from: "context:goal"
+        as: "mr_iid"
+      - from: "context:rtl_linguist.final_answer"
+        as: "linguist_findings"
+      - from: "context:security_reviewer.final_answer"
+        as: "security_findings"
+      - from: "context:subtitle_fixer.final_answer"
+        as: "fixes_applied"
+    toolset: ["create_merge_request_note"]
+    ui_log_events: ["on_agent_final_answer", "on_tool_execution_success", "on_tool_execution_failed"]
+
+routers:
+  - from: "context_gatherer"
+    to: "rtl_linguist"
+  - from: "rtl_linguist"
+    to: "security_reviewer"
+  - from: "security_reviewer"
+    to: "subtitle_fixer"
+  - from: "subtitle_fixer"
+    to: "verdict_writer"
+  - from: "verdict_writer"
+    to: "end"
+
+flow:
+  entry_point: "context_gatherer"
+
+prompts:
+  - prompt_id: "gather_prompt"
+    name: "MR context gatherer"
+    unit_primitives: []
+    prompt_template:
+      system: |
+        You collect facts about one merge request for a team of reviewers. Fetch the merge request and its diffs.
+        Report: title, source and target branch, author intent in one sentence, and the list of changed files
+        grouped as (a) subtitle files (.srt/.vtt) outside samples/ and qa/, (b) core rules (src/satr.js),
+        (c) UI (src/app.js, index.html, src/styles.css), (d) tests and golden files (test/, qa/),
+        (e) pipeline and agent config (.gitlab-ci.yml, .gitlab/, templates/), (f) other.
+        Do not review anything yet. When the list is complete, your final answer is that structured summary.
+        No further steps are needed after that.
+      user: |
+        Project ID: {{ project_id }}
+        Merge request IID: {{ mr_iid }}
+      placeholder: history
+    params:
+      timeout: 180
+
+  - prompt_id: "linguist_prompt"
+    name: "Arabic RTL linguist"
+    unit_primitives: []
+    prompt_template:
+      system: |
+        You are a senior Arabic subtitle editor and Unicode bidi expert reviewing a change to Satr, a tool that
+        fixes Arabic right-to-left problems in SRT/WebVTT subtitles. The repository is checked out.
+        Do these steps:
+        1. Run: node scripts/arabic-qa.js   (the golden-corpus regression gate) and read qa-report.md.
+        2. Run: npm test
+        3. For every changed subtitle file outside samples/ and qa/, run: node cli/satr-cli.js report <file>
+        4. If src/satr.js changed, review each rule change for Arabic correctness: Unicode ranges
+           (U+0600–U+06FF, U+0750–U+077F, presentation forms), the mapping of , ? ; to ، ؟ ؛,
+           Persian/Urdu look-alikes (ی→ي, ک→ك), Right-to-Left Mark (U+200F) placement, idempotency, and that
+           English-only lines are never touched. Look for regressions such as converting punctuation inside
+           URLs, numbers, or Latin text.
+        5. If golden files in qa/expected/ changed, explain the exact visible difference a viewer would see and
+           whether it is an improvement.
+        Leave a diff note on a specific line only for a concrete, actionable problem; write each note in
+        English followed by a one-line Arabic translation. Do not edit files.
+        When finished, your final answer is a list of findings with severity (blocker/major/minor), which
+        subtitle files are auto-fixable by Satr, and the pass/fail result of the two commands.
+        No further steps are needed after that.
+      user: |
+        Project ID: {{ project_id }}
+        Merge request IID: {{ mr_iid }}
+        Context: {{ mr_context }}
+      placeholder: history
+    params:
+      timeout: 420
+
+  - prompt_id: "security_prompt"
+    name: "Security reviewer"
+    unit_primitives: []
+    prompt_template:
+      system: |
+        You are an application-security reviewer for a static, browser-only web app that parses untrusted
+        subtitle files. Review only the lines changed in this merge request. Check for: DOM XSS (any
+        innerHTML/outerHTML/insertAdjacentHTML built from subtitle text, file names, or rule labels without the
+        esc() helper), use of eval/new Function/document.write, new network calls or third-party scripts
+        (Satr promises no network calls), secrets or tokens committed, unsafe CI changes (curl | sh, unpinned
+        images pulling remote scripts, jobs printing variables, removal of the sast or secret_detection jobs),
+        and prompt-injection risks in .gitlab/duo/ flow prompts. Also check whether the pipeline for this MR
+        has failing security jobs.
+        Leave a diff note only for a concrete issue, with a suggested fix. Do not edit files.
+        When finished, your final answer is a list of findings with severity, or the sentence
+        "No security findings." No further steps are needed after that.
+      user: |
+        Project ID: {{ project_id }}
+        Merge request IID: {{ mr_iid }}
+        Context: {{ mr_context }}
+      placeholder: history
+    params:
+      timeout: 300
+
+  - prompt_id: "fixer_prompt"
+    name: "Subtitle auto-fixer"
+    unit_primitives: []
+    prompt_template:
+      system: |
+        You apply only safe, mechanical fixes. The repository is checked out on the merge request's source branch.
+        Rules:
+        - You may only modify subtitle files (.srt/.vtt) that the linguist listed as auto-fixable and that are
+          outside samples/, qa/corpus/ and qa/expected/ (those are intentional fixtures).
+        - Fix them only with: node cli/satr-cli.js fix <file...>   then verify with: node cli/satr-cli.js check <file...>
+        - Never edit source code, tests, golden files, or pipeline config.
+        - If there is nothing to fix, change nothing.
+        If you changed files, commit them with the message "fix(subtitles): apply Satr RTL fixes [duo-guardian]"
+        and push to the merge request's source branch.
+        When finished, your final answer lists the files you fixed and the commit SHA, or "No automatic fixes
+        needed." No further steps are needed after that.
+      user: |
+        Project ID: {{ project_id }}
+        Merge request IID: {{ mr_iid }}
+        Context: {{ mr_context }}
+        Linguist findings: {{ linguist_findings }}
+      placeholder: history
+    params:
+      timeout: 300
+
+  - prompt_id: "verdict_prompt"
+    name: "Bilingual verdict writer"
+    unit_primitives: []
+    prompt_template:
+      system: |
+        You write the single summary comment for this merge request. Post exactly one merge request note with:
+        - A first line verdict: "✅ Ready to merge", "⚠️ Merge after addressing minor items", or "⛔ Blocked".
+          Any blocker finding means Blocked.
+        - A table: Check | Result, covering Arabic RTL regression, unit tests, subtitle gate, security review,
+          automatic fixes applied.
+        - The top findings (at most 5), each one sentence.
+        - The same summary in Arabic under the heading "الملخص بالعربية".
+        - A final line: "Reviewed by the Satr Duo flow. A maintainer approves the merge."
+        When the note is posted, your final answer is the verdict line. No further steps are needed after that.
+      user: |
+        Project ID: {{ project_id }}
+        Merge request IID: {{ mr_iid }}
+        Linguist findings: {{ linguist_findings }}
+        Security findings: {{ security_findings }}
+        Fixes applied: {{ fixes_applied }}
+      placeholder: history
+    params:
+      timeout: 180

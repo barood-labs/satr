@@ -1,0 +1,148 @@
+# Satr Release Scribe — trigger: mention the flow's service account in a release issue, e.g.
+# "@ai-satr-release-scribe prepare v0.3.0". Level: Assisted at the gate — the agent drafts bilingual
+# EN/AR release notes, a HUMAN approves / modifies / rejects them, then the agent opens the release MR.
+# Merging + tagging runs the release-notes and release CI jobs.
+version: "v1"
+environment: ambient
+components:
+  - name: "change_collector"
+    type: AgentComponent
+    prompt_id: "collector_prompt"
+    model_size_preference: "small"
+    inputs:
+      - from: "context:project_id"
+        as: "project_id"
+      - from: "context:goal"
+        as: "goal"
+    toolset: ["get_issue", "list_commits", "gitlab_merge_request_search", "get_merge_request"]
+    ui_log_events: ["on_agent_final_answer", "on_tool_execution_failed"]
+
+  - name: "notes_writer"
+    type: AgentComponent
+    prompt_id: "writer_prompt"
+    inputs:
+      - from: "context:goal"
+        as: "goal"
+      - from: "context:change_collector.final_answer"
+        as: "changes"
+    toolset: []
+    ui_log_events: ["on_agent_final_answer"]
+
+  - name: "maintainer_gate"
+    type: HumanInputComponent
+    sends_response_to: "notes_writer"
+    interaction_type: "approval"
+    message_template: |
+      Review the bilingual release notes drafted above.
+      - ✅ Approve: open the release MR with these notes
+      - ✏️ Modify: send feedback; the writer revises
+      - ❌ Reject: stop, nothing is changed
+    ui_log_events: ["on_user_input_prompt", "on_user_response"]
+
+  - name: "release_publisher"
+    type: AgentComponent
+    prompt_id: "publisher_prompt"
+    inputs:
+      - from: "context:project_id"
+        as: "project_id"
+      - from: "context:goal"
+        as: "goal"
+      - from: "context:notes_writer.final_answer"
+        as: "approved_notes"
+      - from: "context:inputs.agent_platform_standard_context.primary_branch"
+        as: "primary_branch"
+    toolset: ["read_file", "edit_file", "create_file_with_contents", "run_command", "run_git_command",
+              "create_merge_request", "create_issue_note"]
+    ui_log_events: ["on_agent_final_answer", "on_tool_execution_success", "on_tool_execution_failed"]
+
+routers:
+  - from: "change_collector"
+    to: "notes_writer"
+  - from: "notes_writer"
+    to: "maintainer_gate"
+  - from: "maintainer_gate"
+    condition:
+      input: "context:maintainer_gate.approval"
+      routes:
+        "approve": "release_publisher"
+        "modify": "notes_writer"
+        "reject": "end"
+        "default_route": "end"
+  - from: "release_publisher"
+    to: "end"
+
+flow:
+  entry_point: "change_collector"
+  inputs:
+    - category: agent_platform_standard_context
+      input_schema:
+        primary_branch:
+          type: string
+          description: The default/primary branch of the repository
+        workload_branch:
+          type: string
+          description: git ref to workload branch
+        session_owner_id:
+          type: string
+          description: Human user's ID that initiated the flow
+
+prompts:
+  - prompt_id: "collector_prompt"
+    name: "Change collector"
+    unit_primitives: []
+    prompt_template:
+      system: |
+        Find the version requested in the goal (for example v0.3.0). Collect every merge request merged into the
+        default branch since the previous release tag (or all, if there is none) and the commits not in an MR.
+        For each, record: title, IID, type (feature, fix, regression test, CI, docs), and the user-visible effect
+        on Arabic subtitles. When done, your final answer is that list plus the version. No further steps are
+        needed after that.
+      user: |
+        Project ID: {{ project_id }}
+        Goal: {{ goal }}
+      placeholder: history
+    params:
+      timeout: 240
+
+  - prompt_id: "writer_prompt"
+    name: "Bilingual release notes writer"
+    unit_primitives: []
+    prompt_template:
+      system: |
+        You write release notes for Satr, used by Arabic video editors and translators. Write Markdown:
+        "# Satr <version>", then "## English" with sections Highlights, Fixes, Under the hood (each bullet names
+        the MR as !IID), then a block wrapped in <div dir="rtl" lang="ar"> … </div> containing "## بالعربية"
+        with the same content in natural Modern Standard Arabic (not a word-for-word translation; keep product
+        names and !IID references in Latin script). Be concrete about what a viewer sees change.
+        If you receive maintainer feedback in the conversation, revise accordingly.
+        Your final answer is the complete Markdown notes only. No further steps are needed after that.
+      user: |
+        Goal: {{ goal }}
+        Changes: {{ changes }}
+      placeholder: history
+    params:
+      timeout: 240
+
+  - prompt_id: "publisher_prompt"
+    name: "Release publisher"
+    unit_primitives: []
+    prompt_template:
+      system: |
+        The maintainer approved the release notes. The repository is checked out.
+        - Create branch release/<version>.
+        - Write the approved notes verbatim to RELEASE_NOTES.md, prepend them to CHANGELOG.md (create it if
+          missing), and set "version" in package.json to the version without the leading v.
+        - Run: npm test ; node scripts/arabic-qa.js — both must pass.
+        - Commit "chore(release): <version>", push, and open an MR into the primary branch titled
+          "Release <version>" whose description says: after merging, create tag <version> on the merge commit to
+          publish the GitLab release.
+        - Post a note on the release issue (English then Arabic) linking the MR.
+        When finished, your final answer is the MR link. No further steps are needed after that.
+      user: |
+        Project ID: {{ project_id }}
+        Primary branch: {{ primary_branch }}
+        Goal: {{ goal }}
+        Approved notes: {{ approved_notes }}
+      placeholder: history
+    params:
+      timeout: 420
