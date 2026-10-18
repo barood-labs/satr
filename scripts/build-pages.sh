@@ -10,4 +10,5 @@ VERSION="${CI_COMMIT_SHORT_SHA:-$(git rev-parse --short HEAD 2>/dev/null || echo
 printf '{"version":"%s","built_at":"%s"}\n' "$VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > public/version.json
 [ -f qa-report.md ] && cp qa-report.md public/qa-report.md || true
 [ -f sci-report.md ] && cp sci-report.md public/sci-report.md || true
+for f in lifecycle.md governance-report.md config-report.md; do [ -f "$f" ] && cp "$f" "public/$f"; done; true
 echo "built public/ for $VERSION ($(du -sh public | cut -f1))"

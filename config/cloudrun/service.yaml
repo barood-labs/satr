@@ -1,0 +1,26 @@
+# Configure stage: declarative Cloud Run service (Knative) for the optional Google Cloud deployment.
+# Kept in sync with config/environments.json by scripts/config-check.js. Static nginx, scale-to-zero.
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: satr
+  labels:
+    app: satr
+    managed-by: gitlab-ci
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "1"
+        run.googleapis.com/cpu-throttling: "true"
+    spec:
+      containerConcurrency: 80
+      containers:
+        - image: IMAGE_PLACEHOLDER
+          ports:
+            - containerPort: 8080
+          resources:
+            limits:
+              cpu: "1"
+              memory: 128Mi

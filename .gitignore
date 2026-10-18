@@ -12,3 +12,11 @@ qa-stats.json
 sci.json
 sci-report.md
 subtitle-report.md
+lifecycle.md
+governance-report.md
+compliance-evidence.json
+config-report.md
+sbom/
+*.tgz
+*.tgz.sha256
+package.env

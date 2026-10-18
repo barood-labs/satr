@@ -94,6 +94,7 @@ prompts:
           changed), push, and open an MR into the primary branch with "Closes #<iid>" and a before/after table
           in English and Arabic.
         - Post an issue note in English then Arabic linking the MR.
+        Never push to the primary branch directly and never merge your own MR: a maintainer approves it.
         When finished, your final answer is the MR link. No further steps are needed after that.
       user: |
         Project ID: {{ project_id }}

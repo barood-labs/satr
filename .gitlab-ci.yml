@@ -1,7 +1,9 @@
 # Satr · سطر — post-code lifecycle on GitLab
-# lint → test → Arabic RTL regression → security → build → deploy (Pages) → verify live → sustainability → release
+# All 9 GitLab DevSecOps stages: plan · create · verify · package · secure · release · configure · monitor · govern
+# lint/configure → test → Arabic RTL regression → security → govern → build → package → deploy (Pages) → verify live → sustainability → release
 # Duo Agent Platform flows (.gitlab/duo/flows/) review MRs, heal failed pipelines, turn bug reports into
-# regression tests, and write bilingual release notes. The one human gate is the production deploy.
+# regression tests, audit compliance (incl. changes to the agents themselves), and write bilingual release notes.
+# The one human gate is the production deploy.
 
 workflow:
   rules:
@@ -11,7 +13,7 @@ workflow:
     - if: $CI_COMMIT_BRANCH
     - if: $CI_COMMIT_TAG
 
-stages: [lint, test, qa, security, build, deploy, verify, sustainability, release]
+stages: [lint, configure, test, qa, security, govern, build, package, deploy, verify, sustainability, release]
 
 default:
   image: node:20-alpine
@@ -33,6 +35,9 @@ variables:
   - package.json
   - .gitlab-ci.yml
   - .gitlab/duo/**/*
+  - .gitlab/CODEOWNERS
+  - config/**/*
+  - Dockerfile
 
 .on-code:
   rules:
@@ -67,6 +72,17 @@ duo-config:
     - pip install --quiet pyyaml
     - python3 scripts/validate-flows.py   # Duo flow YAML: schema, restricted fields, refs, tool names
 
+# Configure: config/environments.json is the single source of truth for deploy targets; fail on drift.
+config-check:
+  stage: configure
+  extends: .on-code
+  needs: []
+  script:
+    - node scripts/config-check.js
+  artifacts:
+    when: always
+    paths: [config-report.md]
+
 unit-tests:
   stage: test
   extends: .on-code
@@ -97,12 +113,41 @@ sast:
 secret_detection:
   stage: security
 
+# Govern: license, CODEOWNERS, DCO sign-off, and guardrails on the Duo agents themselves (policy as code).
+governance:
+  stage: govern
+  extends: .on-code
+  needs: [lint]
+  before_script:
+    - apk add --no-cache git >/dev/null
+  script:
+    - node scripts/governance.js
+  artifacts:
+    when: always
+    paths: [governance-report.md, compliance-evidence.json]
+    expose_as: "Compliance evidence"
+    expire_in: 1 year                   # audit trail
+
+lifecycle-map:
+  stage: govern
+  extends: .on-code
+  needs: []
+  script:
+    - node scripts/lifecycle-map.js     # fails if any of the 9 DevSecOps stages loses its automation
+  artifacts:
+    paths: [lifecycle.md]
+    expose_as: "Lifecycle coverage"
+
 build-site:
   stage: build
   extends: .on-code
   needs:
     - job: unit-tests
     - job: arabic-regression
+      artifacts: true
+    - job: governance
+      artifacts: true
+    - job: lifecycle-map
       artifacts: true
   script:
     - apk add --no-cache git >/dev/null
@@ -111,6 +156,32 @@ build-site:
     paths: [public]
     expose_as: "Site preview"           # reviewers open the built site straight from the MR
     expire_in: 1 week
+
+# Package: versioned tarball in the GitLab Package Registry (every main commit + tags) and a CycloneDX SBOM.
+package:
+  stage: package
+  needs: [build-site]
+  script:
+    - node scripts/sbom.js
+    - apk add --no-cache curl >/dev/null
+    - VER="${CI_COMMIT_TAG:-$(node -p 'require("./package.json").version')-${CI_COMMIT_SHORT_SHA}}"
+    - tar -czf "satr-${VER}.tgz" public LICENSE README.md
+    - sha256sum "satr-${VER}.tgz" | tee "satr-${VER}.tgz.sha256"
+    - |
+      for f in "satr-${VER}.tgz" "satr-${VER}.tgz.sha256" sbom/gl-sbom-satr.cdx.json; do
+        curl --fail --silent --show-error --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file "$f" \
+          "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/satr/${VER}/$(basename "$f")"
+      done
+    - echo "PACKAGE_VERSION=${VER}" > package.env
+  artifacts:
+    reports:
+      cyclonedx: sbom/gl-sbom-satr.cdx.json
+      dotenv: package.env
+    paths: [sbom/]
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *code-changes
 
 pages:
   stage: deploy
@@ -182,7 +253,7 @@ release-notes:
 release:
   stage: release
   image: registry.gitlab.com/gitlab-org/release-cli:latest
-  needs: [release-notes]
+  needs: [release-notes, package]
   rules:
     - if: $CI_COMMIT_TAG
   script:
@@ -191,3 +262,8 @@ release:
     tag_name: $CI_COMMIT_TAG
     name: "Satr $CI_COMMIT_TAG"
     description: RELEASE_NOTES.md
+    assets:
+      links:
+        - name: "satr-$CI_COMMIT_TAG.tgz (Package Registry)"
+          url: "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/satr/$CI_COMMIT_TAG/satr-$CI_COMMIT_TAG.tgz"
+          link_type: package

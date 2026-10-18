@@ -1,0 +1,27 @@
+{
+  "_comment": "Configure stage: single source of truth for every deploy target. scripts/config-check.js fails the pipeline if .gitlab-ci.yml or config/cloudrun/service.yaml drift from this file.",
+  "environments": {
+    "production": {
+      "platform": "gitlab-pages",
+      "job": "pages",
+      "approval": "manual",
+      "smoke_test": "verify-live"
+    },
+    "production-gcp": {
+      "platform": "google-cloud-run",
+      "job": "deploy-cloud-run",
+      "service": "satr",
+      "region": "us-central1",
+      "min_instances": 0,
+      "max_instances": 1,
+      "memory": "128Mi",
+      "cpu": "1",
+      "allow_unauthenticated": true
+    }
+  },
+  "policy": {
+    "max_memory_mib": 256,
+    "scale_to_zero_required": true,
+    "max_instances_cap": 2
+  }
+}

@@ -176,6 +176,7 @@ prompts:
         - Fix them only with: node cli/satr-cli.js fix <file...>   then verify with: node cli/satr-cli.js check <file...>
         - Never edit source code, tests, golden files, or pipeline config.
         - If there is nothing to fix, change nothing.
+        - Never push to the primary branch directly; only push to the merge request's source branch.
         If you changed files, commit them with the message "fix(subtitles): apply Satr RTL fixes [duo-guardian]"
         and push to the merge request's source branch.
         When finished, your final answer lists the files you fixed and the commit SHA, or "No automatic fixes

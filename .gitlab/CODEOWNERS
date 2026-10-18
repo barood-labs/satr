@@ -1,0 +1,11 @@
+# Govern: changes to the rules engine, golden corpus, pipeline and agent configs need a maintainer's review.
+# (CODEOWNERS approval is enforced when the default branch is protected with "Require approval from code owners".)
+[Rules engine]
+/src/satr.js            @satrtools
+[Golden corpus — changes here change what "correct Arabic" means]
+/qa/expected/           @satrtools
+[Pipeline and agent policy]
+/.gitlab-ci.yml         @satrtools
+/.gitlab/duo/           @satrtools
+/config/                @satrtools
+/scripts/governance.js  @satrtools
